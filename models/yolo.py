@@ -25,6 +25,44 @@ try:
 except ImportError:
     thop = None
 
+# YOLOv9 with NAM Attention Integration
+import torch.nn as nn
+import torch
+from torch.nn import functional as F
+
+
+class Channel_Att(nn.Module):
+    def __init__(self, channels):
+        super(Channel_Att, self).__init__()
+        self.channels = channels
+
+        self.bn2 = nn.BatchNorm2d(self.channels, affine=True)
+
+    def forward(self, x):
+        residual = x
+
+        x = self.bn2(x)
+        weight_bn = self.bn2.weight.data.abs() / torch.sum(self.bn2.weight.data.abs())
+        x = x.permute(0, 2, 3, 1).contiguous()
+        x = torch.mul(weight_bn, x)
+        x = x.permute(0, 3, 1, 2).contiguous()
+
+        x = torch.sigmoid(x) * residual  #
+
+        return x
+
+
+class NAMAttention(nn.Module):
+    def __init__(self, channels):
+        super(NAMAttention, self).__init__()
+        self.Channel_Att = Channel_Att(channels)
+
+    def forward(self, x):
+        x_out1 = self.Channel_Att(x)
+
+        return x_out1
+
+
 
 class Detect(nn.Module):
     # YOLO Detect head for detection models
@@ -700,6 +738,10 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             args = [c1, c2, *args[1:]]
         elif m is CBFuse:
             c2 = ch[f[-1]]
+        # Place NAMAttention here in the sequence
+        elif m is NAMAttention:
+            c1 = ch[f]
+            args = [c1]
         # TODO: channel, gw, gd
         elif m in {Detect, DualDetect, TripleDetect, DDetect, DualDDetect, TripleDDetect, Segment}:
             args.append([ch[x] for x in f])
